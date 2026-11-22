@@ -15,26 +15,41 @@ ROOT = Path(__file__).resolve().parent
 CERT_PATH = ROOT / "results" / "certificate.json"
 
 
+def require(condition: bool, message: str) -> None:
+    """Fail-closed guard that cannot be stripped by python3 -O."""
+    if not condition:
+        raise ValueError(f"verification failed: {message}")
+
+
 def verify_symbolic_theorems() -> dict[str, str]:
-    """Verify three exact closed-form structural theorems with SymPy."""
+    """Verify four exact closed-form structural theorems with SymPy."""
     x, L, f, q = sp.symbols("x L f q", positive=True)
     z = 4 * f * x * (L - x) / L**2
     M_beam = q * L * x / 2 - q * x**2 / 2
     H_funicular = q * L**2 / (8 * f)
-    assert sp.simplify(M_beam - H_funicular * z) == 0
+    require(sp.simplify(M_beam - H_funicular * z) == 0, "funicular zero-moment identity failed")
 
     H, P_sma, K_arch, K_tie = sp.symbols("H P_sma K_arch K_tie", positive=True)
     H_sol = sp.solve(sp.Eq((H_funicular - H) / K_arch, (H - P_sma) / K_tie), H)[0]
     chi = K_arch / K_tie
-    assert sp.simplify(H_sol - (H_funicular + chi * P_sma) / (1 + chi)) == 0
+    require(
+        sp.simplify(H_sol - (H_funicular + chi * P_sma) / (1 + chi)) == 0,
+        "elastic arch-tie compatibility identity failed",
+    )
 
     m, C_f, P0, beta, B_w = sp.symbols("m C_f P0 beta B_w", positive=True)
     fn_sym = C_f / sp.sqrt(m)
     ln_ap = sp.log(P0) - sp.Rational(35, 100) * fn_sym - sp.log(beta * B_w * m)
-    assert sp.simplify(sp.diff(ln_ap, m) * m - (sp.Rational(35, 200) * fn_sym - 1)) == 0
+    require(
+        sp.simplify(sp.diff(ln_ap, m) * m - (sp.Rational(35, 200) * fn_sym - 1)) == 0,
+        "AISC DG11 critical-frequency logarithmic derivative identity failed",
+    )
 
     Ad, ffd = sp.symbols("Ad ffd", positive=True)
-    assert sp.simplify(2 * Ad * ffd * sp.sin(sp.pi / 4) - sp.sqrt(2) * Ad * ffd) == 0
+    require(
+        sp.simplify(2 * Ad * ffd * sp.sin(sp.pi / 4) - sp.sqrt(2) * Ad * ffd) == 0,
+        "45-deg octagonal web truss shear projection identity failed",
+    )
 
     return {
         "funicular_zero_moment_identity": "M_beam(x) - (q*L^2/(8*f))*z(x) == 0",
@@ -314,7 +329,8 @@ def run_verification() -> dict[str, Any]:
             "rejected": ec_eis["ai_datacenter_carbon_reduction_pct"] > 65.0 and ec_eis["office_50psf_funi_kgCO2e_m2"] < 22.0,
         },
     ]
-    assert all(c["rejected"] for c in controls)
+    failed_controls = [c["control"] for c in controls if not c["rejected"]]
+    require(not failed_controls, f"must-fail controls not rejected: {', '.join(failed_controls)}")
 
     return {
         "repository": "aska-physical/funi-floors",
@@ -340,7 +356,8 @@ def main() -> int:
     if not CERT_PATH.exists() or json.loads(CERT_PATH.read_text(encoding="utf-8")) != cert:
         print("[FAIL] results/certificate.json mismatch or missing", file=sys.stderr)
         return 1
-    print("[PASS] funi-floors v0.1.0 Six-Domain Funicular + Fe-SMA/CFRP + 313psf Collar + 120min Fire + EIS (10/10 controls): OK")
+    n_controls = len(cert["must_fail_controls"])
+    print(f"[PASS] funi-floors v0.1.0 Six-Domain Funicular + Fe-SMA/CFRP + 313psf Collar + 120min Fire + EIS ({n_controls}/{n_controls} controls): OK")
     return 0
 
 
