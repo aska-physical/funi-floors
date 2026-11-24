@@ -9,32 +9,51 @@ from __future__ import annotations
 import argparse, cmath, json, math, sys
 from pathlib import Path
 from typing import Any
+_HERE = str(Path(__file__).resolve().parent)
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+import verify_guards
 import sympy as sp
 
 ROOT = Path(__file__).resolve().parent
 CERT_PATH = ROOT / "results" / "certificate.json"
 
 
+def require(condition: bool, message: str) -> None:
+    """Fail-closed guard that cannot be stripped by python3 -O."""
+    if not condition:
+        raise ValueError(f"verification failed: {message}")
+
+
 def verify_symbolic_theorems() -> dict[str, str]:
-    """Verify three exact closed-form structural theorems with SymPy."""
+    """Verify four exact closed-form structural theorems with SymPy."""
     x, L, f, q = sp.symbols("x L f q", positive=True)
     z = 4 * f * x * (L - x) / L**2
     M_beam = q * L * x / 2 - q * x**2 / 2
     H_funicular = q * L**2 / (8 * f)
-    assert sp.simplify(M_beam - H_funicular * z) == 0
+    require(sp.simplify(M_beam - H_funicular * z) == 0, "funicular zero-moment identity failed")
 
     H, P_sma, K_arch, K_tie = sp.symbols("H P_sma K_arch K_tie", positive=True)
     H_sol = sp.solve(sp.Eq((H_funicular - H) / K_arch, (H - P_sma) / K_tie), H)[0]
     chi = K_arch / K_tie
-    assert sp.simplify(H_sol - (H_funicular + chi * P_sma) / (1 + chi)) == 0
+    require(
+        sp.simplify(H_sol - (H_funicular + chi * P_sma) / (1 + chi)) == 0,
+        "elastic arch-tie compatibility identity failed",
+    )
 
     m, C_f, P0, beta, B_w = sp.symbols("m C_f P0 beta B_w", positive=True)
     fn_sym = C_f / sp.sqrt(m)
     ln_ap = sp.log(P0) - sp.Rational(35, 100) * fn_sym - sp.log(beta * B_w * m)
-    assert sp.simplify(sp.diff(ln_ap, m) * m - (sp.Rational(35, 200) * fn_sym - 1)) == 0
+    require(
+        sp.simplify(sp.diff(ln_ap, m) * m - (sp.Rational(35, 200) * fn_sym - 1)) == 0,
+        "AISC DG11 critical-frequency logarithmic derivative identity failed",
+    )
 
     Ad, ffd = sp.symbols("Ad ffd", positive=True)
-    assert sp.simplify(2 * Ad * ffd * sp.sin(sp.pi / 4) - sp.sqrt(2) * Ad * ffd) == 0
+    require(
+        sp.simplify(2 * Ad * ffd * sp.sin(sp.pi / 4) - sp.sqrt(2) * Ad * ffd) == 0,
+        "45-deg octagonal web truss shear projection identity failed",
+    )
 
     return {
         "funicular_zero_moment_identity": "M_beam(x) - (q*L^2/(8*f))*z(x) == 0",
@@ -61,6 +80,23 @@ def solve_funicular_cassette(
     T_joule_C: float = 175.0,
 ) -> dict[str, Any]:
     """Solve coupled arch-tie equilibrium, two-way shear-keyed dynamic EI, crown stresses, MEP shear, and Joule energy."""
+    verify_guards.require_all_finite(
+        L_m=L_m,
+        w_cassette_m=w_cassette_m,
+        h_total_mm=h_total_mm,
+        t_shell_mm=t_shell_mm,
+        h_crown_rib_mm=h_crown_rib_mm,
+        f_rise_m=f_rise_m,
+        q_live_kPa=q_live_kPa,
+        q_sdl_kPa=q_sdl_kPa,
+        fc_MPa=fc_MPa,
+        n_ribs=n_ribs,
+        Af_per_rib_mm2=Af_per_rib_mm2,
+        Ef_cfrp_MPa=Ef_cfrp_MPa,
+        Asma_per_rib_mm2=Asma_per_rib_mm2,
+        Esma_MPa=Esma_MPa,
+        T_joule_C=T_joule_C,
+    )
     vol_shell_m3_m2 = t_shell_mm * 1e-3
     vol_ribs_m3_m2 = (n_ribs * 0.065 * 0.220) / w_cassette_m
     vol_concrete_eq_mm = (vol_shell_m3_m2 + vol_ribs_m3_m2) * 1000.0
@@ -110,7 +146,7 @@ def solve_funicular_cassette(
     phi_V_octagonal_braced_kN = phi_V_unbraced_mep_kN + 0.75 * n_ribs * math.sqrt(2.0) * 65.0 * (Ef_cfrp_MPa * 0.0065) * 1e-3
 
     mass_sma_cassette_kg = n_ribs * (Asma_per_rib_mm2 * 1e-6) * L_m * 7800.0
-    joule_energy_kWh = (mass_sma_cassette_kg * 500.0 * max(0.0, T_joule_C - 20.0) / 0.68) / 3.6e6
+    joule_energy_kWh = (mass_sma_cassette_kg * 500.0 * verify_guards.strict_finite_max(0.0, T_joule_C - 20.0) / 0.68) / 3.6e6
     joule_kwh_per_m2 = joule_energy_kWh / (L_m * w_cassette_m)
 
     return {
@@ -140,6 +176,13 @@ def evaluate_dg11_vibration(
     L_m: float, dead_mass_kg_m2: float, service_live_vib_kPa: float, EI_eff_Nm2_per_m: float, beta_damping: float = 0.03
 ) -> dict[str, Any]:
     """Evaluate fundamental frequency fn (Hz) and peak walking acceleration ap/g (%) per AISC Design Guide 11."""
+    verify_guards.require_all_finite(
+        L_m=L_m,
+        dead_mass_kg_m2=dead_mass_kg_m2,
+        service_live_vib_kPa=service_live_vib_kPa,
+        EI_eff_Nm2_per_m=EI_eff_Nm2_per_m,
+        beta_damping=beta_damping,
+    )
     m_kg_m2 = dead_mass_kg_m2 + (service_live_vib_kPa * 1e3) / 9.80665
     fn_Hz = (math.pi / (2.0 * (L_m**2))) * math.sqrt(EI_eff_Nm2_per_m / m_kg_m2)
     W_eff_kN = m_kg_m2 * 9.80665 * 1e-3 * L_m * (0.65 * L_m)
@@ -166,19 +209,30 @@ def evaluate_punching_shear_collar(
     Vp_truss_collar_kN: float = 480.0,
 ) -> dict[str, Any]:
     """Evaluate ACI 318M-19 §22.6 two-way punching shear at 313 psf (15 kPa) AI data-center load."""
+    verify_guards.require_all_finite(
+        L_bay_m=L_bay_m,
+        c_col_mm=c_col_mm,
+        d_eff_mm=d_eff_mm,
+        q_dead_kPa=q_dead_kPa,
+        q_sdl_kPa=q_sdl_kPa,
+        q_live_kPa=q_live_kPa,
+        fc_MPa=fc_MPa,
+        fpc_collar_MPa=fpc_collar_MPa,
+        Vp_truss_collar_kN=Vp_truss_collar_kN,
+    )
     b0_mm = 4.0 * (c_col_mm + d_eff_mm)
     trib_area_m2 = (L_bay_m**2) - ((c_col_mm + d_eff_mm) * 1e-3) ** 2
     Vu_kN = (1.2 * (q_dead_kPa + q_sdl_kPa) + 1.6 * q_live_kPa) * trib_area_m2
     phi_v = 0.75
 
-    lambda_s = min(1.0, math.sqrt(2.0 / (1.0 + 0.004 * d_eff_mm)))
+    lambda_s = verify_guards.strict_finite_min(1.0, math.sqrt(2.0 / (1.0 + 0.004 * d_eff_mm)))
     vc_unreinf_MPa = 0.33 * lambda_s * math.sqrt(fc_MPa)
     phi_Vc_unreinf_kN = phi_v * vc_unreinf_MPa * b0_mm * d_eff_mm * 1e-3
 
-    vc_active_MPa = 0.29 * math.sqrt(min(35.0, fc_MPa)) + 0.30 * fpc_collar_MPa
+    vc_active_MPa = 0.29 * math.sqrt(verify_guards.strict_finite_min(35.0, fc_MPa)) + 0.30 * fpc_collar_MPa
     phi_Vn_collar_kN = phi_v * (vc_active_MPa * b0_mm * d_eff_mm * 1e-3 + Vp_truss_collar_kN)
     phi_Vn_cap_kN = phi_v * (0.66 * math.sqrt(fc_MPa) * b0_mm * d_eff_mm * 1e-3 + 0.5 * Vp_truss_collar_kN)
-    phi_Vn_gov_kN = min(phi_Vn_collar_kN, phi_Vn_cap_kN)
+    phi_Vn_gov_kN = verify_guards.strict_finite_min(phi_Vn_collar_kN, phi_Vn_cap_kN)
 
     return {
         "Vu_313psf_kN": round(Vu_kN, 2),
@@ -198,6 +252,18 @@ def evaluate_2hr_fire_endurance(
     cover_mm: float = 42.0, n_ribs: int = 4, Asma_per_rib_mm2: float = 980.0, Af_per_rib_mm2: float = 360.0,
 ) -> dict[str, Any]:
     """Evaluate 120-min ISO 834 fire demand (1.2 D + 0.5 L) vs epoxy-only CFRP and mortar-grouted Fe-SMA + CFRP."""
+    verify_guards.require_all_finite(
+        L_m=L_m,
+        w_cassette_m=w_cassette_m,
+        f_rise_m=f_rise_m,
+        q_dead_kPa=q_dead_kPa,
+        q_sdl_kPa=q_sdl_kPa,
+        q_live_kPa=q_live_kPa,
+        cover_mm=cover_mm,
+        n_ribs=n_ribs,
+        Asma_per_rib_mm2=Asma_per_rib_mm2,
+        Af_per_rib_mm2=Af_per_rib_mm2,
+    )
     w_fire_kNm = (1.2 * (q_dead_kPa + q_sdl_kPa) + 0.5 * q_live_kPa) * w_cassette_m
     H_fire_demand_kN = w_fire_kNm * (L_m**2) / (8.0 * f_rise_m)
 
@@ -206,9 +272,11 @@ def evaluate_2hr_fire_endurance(
     T_unprotected_20mm_C = 20.0 + 1029.0 * math.erfc(20.0 / (2.0 * math.sqrt(0.42 * t_sec)))
 
     epoxy_ret = 0.5 * (1.0 - math.tanh((T_unprotected_20mm_C - 82.0) / 18.0))
-    H_cap_epoxy_only_kN = n_ribs * Af_per_rib_mm2 * 3000.0 * max(0.08, epoxy_ret) * 1e-3
+    H_cap_epoxy_only_kN = n_ribs * Af_per_rib_mm2 * 3000.0 * verify_guards.strict_finite_max(0.08, epoxy_ret) * 1e-3
 
-    sma_ret = max(0.35, 1.0 - 0.39 * ((max(0.0, T_rebar_120min_C - 100.0)) / 400.0) ** 1.15)
+    sma_ret = verify_guards.strict_finite_max(
+        0.35, 1.0 - 0.39 * (verify_guards.strict_finite_max(0.0, T_rebar_120min_C - 100.0) / 400.0) ** 1.15
+    )
     H_cap_hybrid_kN = n_ribs * (Asma_per_rib_mm2 * 820.0 * sma_ret + Af_per_rib_mm2 * 1800.0 * 0.65) * 1e-3
 
     return {
@@ -224,6 +292,13 @@ def evaluate_2hr_fire_endurance(
 
 def evaluate_carbon_and_eis_telemetry(vol_eq_313psf_mm: float, n_ribs: int, Af_mm2: float, Asma_mm2: float, w_m: float = 3.0) -> dict[str, Any]:
     """Compute cradle-to-gate A1-A3 embodied carbon (Office 50 psf & AI Data Center 313 psf) and 7-freq Cole EIS leak twin."""
+    verify_guards.require_all_finite(
+        vol_eq_313psf_mm=vol_eq_313psf_mm,
+        n_ribs=n_ribs,
+        Af_mm2=Af_mm2,
+        Asma_mm2=Asma_mm2,
+        w_m=w_m,
+    )
     ec_conc_ai = (vol_eq_313psf_mm * 1e-3) * 132.0
     ec_ties_ai = ((n_ribs * Af_mm2 * 1e-6 * 1600.0) * 11.5 + (n_ribs * Asma_mm2 * 1e-6 * 7800.0) * 1.45) / w_m
     ec_total_ai = ec_conc_ai + 5.4 + ec_ties_ai
@@ -314,7 +389,8 @@ def run_verification() -> dict[str, Any]:
             "rejected": ec_eis["ai_datacenter_carbon_reduction_pct"] > 65.0 and ec_eis["office_50psf_funi_kgCO2e_m2"] < 22.0,
         },
     ]
-    assert all(c["rejected"] for c in controls)
+    failed_controls = [c["control"] for c in controls if not c["rejected"]]
+    require(not failed_controls, f"must-fail controls not rejected: {', '.join(failed_controls)}")
 
     return {
         "repository": "aska-physical/funi-floors",
@@ -335,12 +411,14 @@ def main() -> int:
     args = ap.parse_args()
     cert = run_verification()
     if args.write:
-        CERT_PATH.parent.mkdir(parents=True, exist_ok=True)
-        CERT_PATH.write_text(json.dumps(cert, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    if not CERT_PATH.exists() or json.loads(CERT_PATH.read_text(encoding="utf-8")) != cert:
-        print("[FAIL] results/certificate.json mismatch or missing", file=sys.stderr)
+        verify_guards.safe_write_canonical_json(CERT_PATH, cert, indent=2, sort_keys=True)
+    try:
+        verify_guards.verify_canonical_json_file(CERT_PATH, cert, indent=2, sort_keys=True)
+    except ValueError as exc:
+        print(f"[FAIL] results/certificate.json mismatch, missing, or invalid: {exc}", file=sys.stderr)
         return 1
-    print("[PASS] funi-floors v0.1.0 Six-Domain Funicular + Fe-SMA/CFRP + 313psf Collar + 120min Fire + EIS (10/10 controls): OK")
+    n_controls = len(cert["must_fail_controls"])
+    print(f"[PASS] funi-floors v0.1.0 Six-Domain Funicular + Fe-SMA/CFRP + 313psf Collar + 120min Fire + EIS ({n_controls}/{n_controls} controls): OK")
     return 0
 
 
