@@ -15,7 +15,9 @@ from fractions import Fraction
 import hashlib
 import hmac
 import json
+import os
 from pathlib import Path
+import stat
 import sys
 from typing import Any
 
@@ -198,9 +200,9 @@ def evaluate_checkerboard_arch_q(
     section_depth_m: Any,
 ) -> dict[str, Any]:
     """
-    Exact-Q 2-hinged parabolic arch equilibrium under arbitrary left/right half-span loading:
+    Exact-Q crown-hinge (3-hinged) parabolic arch equilibrium under arbitrary left/right half-span loading:
       - Symmetric mean w_avg = width * (q_perm + (q_L + q_R)/2) gives exact funicular thrust
-        H = w_avg * L^2 / (8 * f) with zero moment everywhere.
+        H = w_avg * L^2 / (8 * f) with zero crown moment M(L/2) = 0.
       - Antisymmetric checkerboard difference w_asym = width * (q_L - q_R) produces exact
         quarter-span bending M(L/4) = +w_asym * L^2 / 64, M(3L/4) = -w_asym * L^2 / 64,
         and thrust-line eccentricity e(L/4) = |M(L/4)| / H vs middle-third kern h / 6.
@@ -489,8 +491,10 @@ def build_study_payload() -> dict[str, Any]:
     web_full_45 = analyze_mep_web_bracing_q(4, "full_octagonal_45")
     web_full_x = analyze_mep_web_bracing_q(4, "full_x_45")
 
-    # Issue #3: 700 kN per rib end (2,857 kN / 4 ribs); sleeve = 400 mm, d_h = 40 mm, alpha = 4,
-    # pin_cap = 260 kN, intact_rib_tear = 1,200 kN; plus 1-pin 480 kN collar-dowel baseline check
+    # Issue #3: nominal 700 kN/rib reference input (upstream certificate thrust is 2,857 kN / 4 = 714.2 kN/rib;
+    # all three pass/fail gates hold identically at 714.2 kN/rib: uniform peak 280.58 > 260 kN FAIL,
+    # graded peak 249.97 <= 260 kN & 714.2 <= 720 kN PASS, 6-pin tear 480 < 714.2 kN FAIL).
+    # Sleeve = 400 mm, d_h = 40 mm, alpha = 4, pin_cap = 260 kN, intact_rib_tear = 1,200 kN.
     single_480_shortfall = Fraction(700) - Fraction(480)
     interlock_unif_4_fail = evaluate_interlock_gate_q(
         [Fraction(400, 3)] * 3,
@@ -582,10 +586,43 @@ def _require_sha256_hex(val: Any, label: str) -> str:
     return val
 
 
+_DARWIN_SYSTEM_ROOT_ALIASES: tuple[tuple[str, str], ...] = (
+    ("/var", "/private/var"),
+    ("/tmp", "/private/tmp"),
+    ("/etc", "/private/etc"),
+)
+
+
+def _normalize_darwin_system_prefix(path: Path, *, allow_exact: bool = False) -> Path:
+    """Map verified root-owned macOS /var, /tmp, /etc aliases to /private/* without resolving user symlinks."""
+    if sys.platform != "darwin" or not path.is_absolute():
+        return path
+    parts = path.parts
+    min_parts = 2 if allow_exact else 3
+    if len(parts) < min_parts or parts[0] != "/" or ".." in parts:
+        return path
+    top = "/" + parts[1]
+    for alias, canonical in _DARWIN_SYSTEM_ROOT_ALIASES:
+        if top != alias:
+            continue
+        try:
+            st = os.lstat(alias)
+            if not stat.S_ISLNK(st.st_mode) or st.st_uid != 0:
+                return path
+            target = os.readlink(alias)
+            if target not in (canonical, canonical.lstrip("/")):
+                return path
+        except OSError:
+            return path
+        return Path(canonical, *parts[2:])
+    return path
+
+
 def _require_no_symlink_path(path: Path) -> None:
-    if path.is_symlink():
+    norm = _normalize_darwin_system_prefix(path)
+    if norm.is_symlink():
         raise FuniBioAuditError("SYMLINK_FORBIDDEN", f"symlink path forbidden: {path}")
-    for parent in path.parents:
+    for parent in norm.parents:
         if parent.is_symlink():
             raise FuniBioAuditError("SYMLINK_ANCESTOR_FORBIDDEN", f"symlink ancestor forbidden: {parent}")
 
