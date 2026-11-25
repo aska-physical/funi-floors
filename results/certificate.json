@@ -1,24 +1,55 @@
 {
   "aci318_punching_collar_313psf": {
     "baseline_250mm_pt_uncollared_fails": {
+      "Jc_mm4": 51203425000.0,
+      "Mu_unbalanced_kNm": 0.0,
       "Vu_313psf_kN": 2608.07,
       "active_collar_passes": false,
       "b0_mm": 2840.0,
       "d_eff_flush_corner_mm": 210.0,
+      "gamma_v": 0.4,
       "phi_Vc_uncollared_kN": 933.56,
       "phi_Vn_active_collar_kN": 767.42,
+      "phi_vn_active_collar_MPa": 1.2867,
       "uncollared_passes": false,
-      "utilization_active_collar": 3.3985
+      "utilization_active_collar": 3.3985,
+      "vu_concentric_MPa": 4.373,
+      "vu_moment_transfer_MPa": 0.0,
+      "vu_total_MPa": 4.373
     },
     "funi_floor_with_collar": {
+      "Jc_mm4": 135252865104.2,
+      "Mu_unbalanced_kNm": 0.0,
       "Vu_313psf_kN": 2208.02,
       "active_collar_passes": true,
       "b0_mm": 3340.0,
       "d_eff_flush_corner_mm": 335.0,
+      "gamma_v": 0.4,
       "phi_Vc_uncollared_kN": 1810.33,
       "phi_Vn_active_collar_kN": 2756.4,
+      "phi_vn_active_collar_MPa": 2.4635,
       "uncollared_passes": false,
-      "utilization_active_collar": 0.8011
+      "utilization_active_collar": 0.8011,
+      "vu_concentric_MPa": 1.9734,
+      "vu_moment_transfer_MPa": 0.0,
+      "vu_total_MPa": 1.9734
+    },
+    "funi_floor_with_collar_aci318_pattern_moment_fails": {
+      "Jc_mm4": 135252865104.2,
+      "Mu_unbalanced_kNm": 546.21,
+      "Vu_313psf_kN": 2208.02,
+      "active_collar_passes": false,
+      "b0_mm": 3340.0,
+      "d_eff_flush_corner_mm": 335.0,
+      "gamma_v": 0.4,
+      "phi_Vc_uncollared_kN": 1810.33,
+      "phi_Vn_active_collar_kN": 2756.4,
+      "phi_vn_active_collar_MPa": 2.4635,
+      "uncollared_passes": false,
+      "utilization_active_collar": 1.0748,
+      "vu_concentric_MPa": 1.9734,
+      "vu_moment_transfer_MPa": 0.6744,
+      "vu_total_MPa": 2.6478
     }
   },
   "certificate_version": "0.1.0",
@@ -51,23 +82,33 @@
     "office_carbon_reduction_pct": 77.87
   },
   "funicular_cassette_9mx3m_313psf": {
+    "Ad_diag_mm2": 65.0,
     "EI_2way_dyn_MNm2_per_m": 58.758,
+    "H_arch_halfbay_pattern_kN": 1141.77,
     "H_arch_service_kN": 1894.74,
     "H_arch_uls_kN": 2856.82,
     "M_crown_residual_service_kNm": 4.119,
+    "M_quarter_halfbay_pattern_kNm": 50.132,
     "V_quarter_mep_demand_uls_kN": 185.6,
     "concrete_rupture_modulus_fr_MPa": 4.384,
     "concrete_volume_reduction_vs_310mm_pt_pct": 76.11,
     "dead_mass_kg_m2": 195.12,
     "dead_mass_reduction_vs_744kg_pt_pct": 73.77,
+    "e_quarter_halfbay_pattern_mm": 43.91,
+    "eps_fe_cfrp_aci440_capped": 0.004,
     "equivalent_concrete_thickness_mm": 74.07,
     "fc_crown_service_MPa": 13.669,
     "fc_service_limit_0.45fc_MPa": 22.5,
     "fe_sma_recovery_stress_MPa": 423.47,
+    "halfbay_pattern_within_local_rib_kern": false,
+    "halfbay_pattern_within_shell_kern": false,
     "joule_activation_energy_kWh_m2": 0.3227,
     "joule_activation_energy_per_27m2_cassette_kWh": 8.712,
+    "kern_local_rib_115mm_mm": 19.17,
+    "kern_local_t_section_bot_mm": 6.27,
+    "kern_shell_55mm_mm": 9.17,
     "passive_gfrp_tie_crown_tensile_stress_MPa": 188.79,
-    "phi_V_45deg_octagonal_mep_hole_kN": 373.48,
+    "phi_V_45deg_octagonal_mep_hole_kN": 238.49,
     "phi_V_unbraced_mep_hole_kN": 22.5,
     "story_height_saved_vs_pt_plenum_mm": 280.0
   },
@@ -120,12 +161,27 @@
     {
       "control": "funicular_sip_cassette_misses_65pct_embodied_carbon_reduction",
       "rejected": true
+    },
+    {
+      "control": "unribbed_shell_or_local_115mm_rib_stays_within_kern_under_halfbay_313psf_pattern",
+      "rejected": true
+    },
+    {
+      "control": "v010_concentric_flush_collar_survives_aci318_pattern_unbalanced_moment",
+      "rejected": true
+    },
+    {
+      "control": "cfrp_web_shear_ignores_aci440_0p004_cap_or_diagonal_area_sizing",
+      "rejected": true
     }
   ],
   "repository": "aska-physical/funi-floors",
   "symbolic_theorems": {
+    "aci318_square_column_gamma_v": "gamma_v(b1=b2) == 2/5",
     "dg11_critical_frequency_hz": "5.7143",
     "elastic_arch_tie_compatibility": "H = (H_rigid + chi*P_SMA) / (1 + chi)",
-    "funicular_zero_moment_identity": "M_beam(x) - (q*L^2/(8*f))*z(x) == 0"
+    "funicular_zero_moment_identity": "M_beam(x) - (q*L^2/(8*f))*z(x) == 0",
+    "halfbay_pattern_quarter_moment_identity": "M_pattern(L/4) == w_asym * L^2 / 64",
+    "octagonal_45deg_truss_projection": "2*Ad*ffd*sin(pi/4) == sqrt(2)*Ad*ffd"
   }
 }
