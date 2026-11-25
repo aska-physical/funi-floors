@@ -46,7 +46,8 @@ class TestFuniFloorsOSafety(unittest.TestCase):
         with mock.patch.object(sys, "argv", ["verify.py"]), redirect_stdout(buf):
             rc = verify.main()
         self.assertEqual(rc, 0)
-        self.assertIn("(10/10 controls): OK", buf.getvalue())
+        n_controls = len(expected["must_fail_controls"])
+        self.assertIn(f"({n_controls}/{n_controls} controls): OK", buf.getvalue())
 
     def test_every_symbolic_theorem_guard_is_live(self) -> None:
         real_simplify = verify.sp.simplify

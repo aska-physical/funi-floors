@@ -55,10 +55,30 @@ def verify_symbolic_theorems() -> dict[str, str]:
         "45-deg octagonal web truss shear projection identity failed",
     )
 
+    w_asym = sp.symbols("w_asym", positive=True)
+    # Half-bay patterned live load (w_asym on [0, L/2], 0 on [L/2, L]) on a parabolic arch:
+    # R_A = 3*w_asym*L/8, M_beam(L/4) = R_A*(L/4) - w_asym*(L/4)^2/2 = w_asym*L^2/16,
+    # H_pat = (w_asym/2)*L^2/(8*f) = w_asym*L^2/(16*f), z(L/4) = 3*f/4 -> M(L/4) = w_asym*L^2/64.
+    M_pat_qtr = (3 * w_asym * L / 8) * (L / 4) - w_asym * (L / 4) ** 2 / 2 - (w_asym * L**2 / (16 * f)) * (3 * f / 4)
+    require(
+        sp.simplify(M_pat_qtr - w_asym * L**2 / 64) == 0,
+        "half-bay patterned quarter-span moment identity failed",
+    )
+
+    b1, b2 = sp.symbols("b1 b2", positive=True)
+    gamma_v_expr = 1 - 1 / (1 + sp.Rational(2, 3) * sp.sqrt(b1 / b2))
+    require(
+        sp.simplify(gamma_v_expr.subs(b2, b1) - sp.Rational(2, 5)) == 0,
+        "ACI 318-19 §8.4.4.2.2 square-column gamma_v = 2/5 identity failed",
+    )
+
     return {
         "funicular_zero_moment_identity": "M_beam(x) - (q*L^2/(8*f))*z(x) == 0",
         "elastic_arch_tie_compatibility": "H = (H_rigid + chi*P_SMA) / (1 + chi)",
         "dg11_critical_frequency_hz": str(round(float(sp.Rational(200, 35)), 4)),
+        "octagonal_45deg_truss_projection": "2*Ad*ffd*sin(pi/4) == sqrt(2)*Ad*ffd",
+        "halfbay_pattern_quarter_moment_identity": "M_pattern(L/4) == w_asym * L^2 / 64",
+        "aci318_square_column_gamma_v": "gamma_v(b1=b2) == 2/5",
     }
 
 
@@ -78,8 +98,10 @@ def solve_funicular_cassette(
     Asma_per_rib_mm2: float = 980.0,
     Esma_MPa: float = 165000.0,
     T_joule_C: float = 175.0,
+    Ad_diag_mm2: float = 65.0,
+    eps_fe_cfrp: float = 0.004,
 ) -> dict[str, Any]:
-    """Solve coupled arch-tie equilibrium, two-way shear-keyed dynamic EI, crown stresses, MEP shear, and Joule energy."""
+    """Solve coupled arch-tie equilibrium, two-way shear-keyed dynamic EI, crown stresses, MEP shear, patterned kern, and Joule energy."""
     verify_guards.require_all_finite(
         L_m=L_m,
         w_cassette_m=w_cassette_m,
@@ -96,9 +118,14 @@ def solve_funicular_cassette(
         Asma_per_rib_mm2=Asma_per_rib_mm2,
         Esma_MPa=Esma_MPa,
         T_joule_C=T_joule_C,
+        Ad_diag_mm2=Ad_diag_mm2,
+        eps_fe_cfrp=eps_fe_cfrp,
     )
+    require(Ad_diag_mm2 > 0.0, "diagonal CFRP area Ad_diag_mm2 must be positive")
+    require(eps_fe_cfrp > 0.0, "CFRP effective shear strain eps_fe_cfrp must be positive")
+    b_rib_mm = 65.0
     vol_shell_m3_m2 = t_shell_mm * 1e-3
-    vol_ribs_m3_m2 = (n_ribs * 0.065 * 0.220) / w_cassette_m
+    vol_ribs_m3_m2 = (n_ribs * (b_rib_mm * 1e-3) * 0.220) / w_cassette_m
     vol_concrete_eq_mm = (vol_shell_m3_m2 + vol_ribs_m3_m2) * 1000.0
     mass_concrete_kg_m2 = (vol_shell_m3_m2 + vol_ribs_m3_m2) * 2400.0
     mass_sip_and_ties_kg_m2 = 6.4 + (Af_per_rib_mm2 * 1e-6 * 1600.0 + Asma_per_rib_mm2 * 1e-6 * 7800.0) * n_ribs / w_cassette_m
@@ -112,7 +139,7 @@ def solve_funicular_cassette(
     P_sma_total_kN = n_ribs * Asma_per_rib_mm2 * sigma_rec_MPa * 1e-3
 
     Ec_MPa = 4700.0 * math.sqrt(fc_MPa)
-    I_arch_mm4 = n_ribs * (65.0 * (h_crown_rib_mm**3) / 12.0) + (w_cassette_m * 1000.0) * (t_shell_mm**3) / 12.0
+    I_arch_mm4 = n_ribs * (b_rib_mm * (h_crown_rib_mm**3) / 12.0) + (w_cassette_m * 1000.0) * (t_shell_mm**3) / 12.0
     EA_tie_N = n_ribs * (Af_per_rib_mm2 * Ef_cfrp_MPa + Asma_per_rib_mm2 * Esma_MPa)
     chi = (15.0 * Ec_MPa * I_arch_mm4) / (8.0 * ((f_rise_m * 1000.0) ** 2) * EA_tie_N)
 
@@ -120,13 +147,41 @@ def solve_funicular_cassette(
     EA_top_per_m = Ec_dyn_MPa * 1000.0 * t_shell_mm
     EA_bot_per_m = EA_tie_N / w_cassette_m
     z_lever_m = (h_total_mm - 0.5 * t_shell_mm - 32.0) * 1e-3
-    I_ribs_avg_per_m_m4 = (n_ribs * (0.065 * (0.255**3) / 12.0)) / w_cassette_m
+    I_ribs_avg_per_m_m4 = (n_ribs * ((b_rib_mm * 1e-3) * (0.255**3) / 12.0)) / w_cassette_m
     EI_1way_Nm2_m = ((EA_top_per_m * EA_bot_per_m) / (EA_top_per_m + EA_bot_per_m)) * (z_lever_m**2) + (Ec_dyn_MPa * 1e6) * I_ribs_avg_per_m_m4
     EI_2way_dyn_Nm2_m = 1.80 * EI_1way_Nm2_m
 
     H_rigid_serv_kN = w_serv_kNm * (L_m**2) / (8.0 * f_rise_m)
     H_serv_kN = (H_rigid_serv_kN + chi * P_sma_total_kN) / (1.0 + chi)
     M_crown_serv_kNm = w_serv_kNm * (L_m**2) / 8.0 - H_serv_kN * f_rise_m
+
+    # Half-bay patterned rack live load (q_live on [0, L/2], 0 on [L/2, L]):
+    # Evaluate M(L/4) = M_beam(L/4) - H_pattern * z(L/4) consistently using the SAME compatible
+    # prestressed arch thrust H_pattern, and compare eccentricity e = |M(L/4)| / H_pattern against
+    # the LOCAL quarter-span/crown section kerns (55 mm shell and 115 mm local rib — NOT the 380 mm corner depth).
+    w_dead_sdl_kNm = (q_dead_kPa + q_sdl_kPa) * w_cassette_m
+    w_asym_kNm = q_live_kPa * w_cassette_m
+    w_pattern_avg_kNm = (q_dead_kPa + q_sdl_kPa + 0.5 * q_live_kPa) * w_cassette_m
+    H_pattern_rigid_kN = w_pattern_avg_kNm * (L_m**2) / (8.0 * f_rise_m)
+    H_pattern_kN = (H_pattern_rigid_kN + chi * P_sma_total_kN) / (1.0 + chi)
+    M_beam_quarter_pattern_kNm = (3.0 / 32.0) * w_dead_sdl_kNm * (L_m**2) + (1.0 / 16.0) * w_asym_kNm * (L_m**2)
+    z_quarter_m = 0.75 * f_rise_m
+    M_quarter_pattern_kNm = M_beam_quarter_pattern_kNm - H_pattern_kN * z_quarter_m
+    e_quarter_pattern_mm = (abs(M_quarter_pattern_kNm) / H_pattern_kN) * 1000.0
+    kern_shell_mm = t_shell_mm / 6.0
+    kern_local_rib_mm = h_crown_rib_mm / 6.0
+    # Exact local T-section lower kern at crown/quarter-span rib depth h_crown_rib_mm (bottom-fiber tension)
+    A_flange_mm2 = (w_cassette_m * 1000.0) * t_shell_mm
+    A_webs_mm2 = n_ribs * b_rib_mm * (h_crown_rib_mm - t_shell_mm)
+    A_local_t_mm2 = A_flange_mm2 + A_webs_mm2
+    y_bar_local_mm = (A_flange_mm2 * (0.5 * t_shell_mm) + A_webs_mm2 * (t_shell_mm + 0.5 * (h_crown_rib_mm - t_shell_mm))) / A_local_t_mm2
+    I_local_t_mm4 = (
+        (w_cassette_m * 1000.0) * (t_shell_mm**3) / 12.0
+        + A_flange_mm2 * ((y_bar_local_mm - 0.5 * t_shell_mm) ** 2)
+        + n_ribs * b_rib_mm * ((h_crown_rib_mm - t_shell_mm) ** 3) / 12.0
+        + A_webs_mm2 * ((t_shell_mm + 0.5 * (h_crown_rib_mm - t_shell_mm) - y_bar_local_mm) ** 2)
+    )
+    kern_local_t_bot_mm = I_local_t_mm4 / (A_local_t_mm2 * (h_crown_rib_mm - y_bar_local_mm))
 
     EA_gfrp_N = n_ribs * (Af_per_rib_mm2 * 46000.0)
     chi_gfrp = (15.0 * Ec_MPa * I_arch_mm4) / (8.0 * ((f_rise_m * 1000.0) ** 2) * EA_gfrp_N)
@@ -136,20 +191,29 @@ def solve_funicular_cassette(
     H_rigid_uls_kN = w_uls_kNm * (L_m**2) / (8.0 * f_rise_m)
     H_uls_kN = (H_rigid_uls_kN + chi * P_sma_total_kN) / (1.0 + chi)
 
-    A_crown_mm2 = (w_cassette_m * 1000.0) * t_shell_mm + n_ribs * 65.0 * (h_crown_rib_mm - t_shell_mm)
+    A_crown_mm2 = (w_cassette_m * 1000.0) * t_shell_mm + n_ribs * b_rib_mm * (h_crown_rib_mm - t_shell_mm)
     S_crown_mm3 = I_arch_mm4 / (0.5 * h_crown_rib_mm)
     fc_crown_serv_MPa = (H_serv_kN * 1e3) / A_crown_mm2 + abs(M_crown_serv_kNm * 1e6) / S_crown_mm3
     ft_crown_passive_gfrp_MPa = abs(M_crown_passive_gfrp_kNm * 1e6) / S_crown_mm3 - (H_passive_gfrp_kN * 1e3) / A_crown_mm2
 
     V_quarter_uls_kN = 0.25 * w_uls_kNm * L_m
-    phi_V_unbraced_mep_kN = 0.75 * n_ribs * (2.0 * 65.0 * 48.0) * 0.17 * math.sqrt(fc_MPa) * 1e-3
-    phi_V_octagonal_braced_kN = phi_V_unbraced_mep_kN + 0.75 * n_ribs * math.sqrt(2.0) * 65.0 * (Ef_cfrp_MPa * 0.0065) * 1e-3
+    phi_V_unbraced_mep_kN = 0.75 * n_ribs * (2.0 * b_rib_mm * 48.0) * 0.17 * math.sqrt(fc_MPa) * 1e-3
+    # Dimensionally exact truss shear: phi * n_ribs * sqrt(2) * Ad_diag_mm2 * (Ef_cfrp_MPa * eps_fe_eff) * 1e-3 [kN]
+    # with ACI 440.2R-17 §11.4.1.2 shear effective-strain cap eps_fe <= 0.004.
+    eps_fe_aci440_cap = 0.004
+    eps_fe_eff = verify_guards.strict_finite_min(eps_fe_aci440_cap, eps_fe_cfrp)
+    phi_V_octagonal_braced_kN = (
+        phi_V_unbraced_mep_kN
+        + 0.75 * n_ribs * math.sqrt(2.0) * Ad_diag_mm2 * (Ef_cfrp_MPa * eps_fe_eff) * 1e-3
+    )
 
     mass_sma_cassette_kg = n_ribs * (Asma_per_rib_mm2 * 1e-6) * L_m * 7800.0
     joule_energy_kWh = (mass_sma_cassette_kg * 500.0 * verify_guards.strict_finite_max(0.0, T_joule_C - 20.0) / 0.68) / 3.6e6
     joule_kwh_per_m2 = joule_energy_kWh / (L_m * w_cassette_m)
 
     return {
+        "Ad_diag_mm2": round(Ad_diag_mm2, 2),
+        "eps_fe_cfrp_aci440_capped": round(eps_fe_eff, 6),
         "equivalent_concrete_thickness_mm": round(vol_concrete_eq_mm, 2),
         "concrete_volume_reduction_vs_310mm_pt_pct": round(100.0 * (1.0 - vol_concrete_eq_mm / 310.0), 2),
         "dead_mass_kg_m2": round(dead_mass_kg_m2, 2),
@@ -159,6 +223,14 @@ def solve_funicular_cassette(
         "H_arch_service_kN": round(H_serv_kN, 2),
         "H_arch_uls_kN": round(H_uls_kN, 2),
         "M_crown_residual_service_kNm": round(M_crown_serv_kNm, 3),
+        "M_quarter_halfbay_pattern_kNm": round(M_quarter_pattern_kNm, 3),
+        "H_arch_halfbay_pattern_kN": round(H_pattern_kN, 2),
+        "e_quarter_halfbay_pattern_mm": round(e_quarter_pattern_mm, 2),
+        "kern_shell_55mm_mm": round(kern_shell_mm, 2),
+        "kern_local_rib_115mm_mm": round(kern_local_rib_mm, 2),
+        "kern_local_t_section_bot_mm": round(kern_local_t_bot_mm, 2),
+        "halfbay_pattern_within_shell_kern": bool(e_quarter_pattern_mm <= kern_shell_mm),
+        "halfbay_pattern_within_local_rib_kern": bool(e_quarter_pattern_mm <= kern_local_rib_mm),
         "fc_crown_service_MPa": round(fc_crown_serv_MPa, 3),
         "fc_service_limit_0.45fc_MPa": round(0.45 * fc_MPa, 2),
         "passive_gfrp_tie_crown_tensile_stress_MPa": round(ft_crown_passive_gfrp_MPa, 3),
@@ -207,11 +279,15 @@ def evaluate_punching_shear_collar(
     fc_MPa: float = 50.0,
     fpc_collar_MPa: float = 3.8,
     Vp_truss_collar_kN: float = 480.0,
+    Mu_unbalanced_kNm: float = 0.0,
+    c_col_y_mm: float | None = None,
 ) -> dict[str, Any]:
-    """Evaluate ACI 318M-19 §22.6 two-way punching shear at 313 psf (15 kPa) AI data-center load."""
+    """Evaluate ACI 318M-19 §22.6 / §8.4.4.2 two-way punching shear with unbalanced moment transfer."""
+    c2_mm = c_col_mm if c_col_y_mm is None else c_col_y_mm
     verify_guards.require_all_finite(
         L_bay_m=L_bay_m,
         c_col_mm=c_col_mm,
+        c_col_y_mm=c2_mm,
         d_eff_mm=d_eff_mm,
         q_dead_kPa=q_dead_kPa,
         q_sdl_kPa=q_sdl_kPa,
@@ -219,9 +295,14 @@ def evaluate_punching_shear_collar(
         fc_MPa=fc_MPa,
         fpc_collar_MPa=fpc_collar_MPa,
         Vp_truss_collar_kN=Vp_truss_collar_kN,
+        Mu_unbalanced_kNm=Mu_unbalanced_kNm,
     )
-    b0_mm = 4.0 * (c_col_mm + d_eff_mm)
-    trib_area_m2 = (L_bay_m**2) - ((c_col_mm + d_eff_mm) * 1e-3) ** 2
+    require(c_col_mm > 0.0 and c2_mm > 0.0 and d_eff_mm > 0.0, "column dimensions and d_eff_mm must be positive")
+    b1_mm = c_col_mm + d_eff_mm
+    b2_mm = c2_mm + d_eff_mm
+    b0_mm = 2.0 * (b1_mm + b2_mm)
+    trib_area_m2 = (L_bay_m**2) - (b1_mm * 1e-3) * (b2_mm * 1e-3)
+    require(trib_area_m2 > 0.0, "tributary area outside critical perimeter must be positive")
     Vu_kN = (1.2 * (q_dead_kPa + q_sdl_kPa) + 1.6 * q_live_kPa) * trib_area_m2
     phi_v = 0.75
 
@@ -234,15 +315,36 @@ def evaluate_punching_shear_collar(
     phi_Vn_cap_kN = phi_v * (0.66 * math.sqrt(fc_MPa) * b0_mm * d_eff_mm * 1e-3 + 0.5 * Vp_truss_collar_kN)
     phi_Vn_gov_kN = verify_guards.strict_finite_min(phi_Vn_collar_kN, phi_Vn_cap_kN)
 
+    # ACI 318-19 §8.4.4.2.2-3 eccentric punching stress: v_u = V_u/(b0*d) + gamma_v * |M_u| * c_AB / J_c
+    gamma_v = 1.0 - 1.0 / (1.0 + (2.0 / 3.0) * math.sqrt(b1_mm / b2_mm))
+    c_ab_mm = 0.5 * b1_mm
+    Jc_mm4 = (
+        (d_eff_mm * (b1_mm**3)) / 6.0
+        + (b1_mm * (d_eff_mm**3)) / 6.0
+        + (d_eff_mm * b2_mm * (b1_mm**2)) / 2.0
+    )
+    vu_conc_MPa = (Vu_kN * 1e3) / (b0_mm * d_eff_mm)
+    vu_moment_MPa = (gamma_v * abs(Mu_unbalanced_kNm) * 1e6 * c_ab_mm) / Jc_mm4
+    vu_total_MPa = vu_conc_MPa + vu_moment_MPa
+    phi_vn_unreinf_MPa = (phi_Vc_unreinf_kN * 1e3) / (b0_mm * d_eff_mm)
+    phi_vn_collar_MPa = (phi_Vn_gov_kN * 1e3) / (b0_mm * d_eff_mm)
+
     return {
         "Vu_313psf_kN": round(Vu_kN, 2),
+        "Mu_unbalanced_kNm": round(Mu_unbalanced_kNm, 2),
+        "gamma_v": round(gamma_v, 4),
+        "Jc_mm4": round(Jc_mm4, 1),
+        "vu_concentric_MPa": round(vu_conc_MPa, 4),
+        "vu_moment_transfer_MPa": round(vu_moment_MPa, 4),
+        "vu_total_MPa": round(vu_total_MPa, 4),
+        "phi_vn_active_collar_MPa": round(phi_vn_collar_MPa, 4),
         "b0_mm": round(b0_mm, 1),
         "d_eff_flush_corner_mm": d_eff_mm,
         "phi_Vc_uncollared_kN": round(phi_Vc_unreinf_kN, 2),
         "phi_Vn_active_collar_kN": round(phi_Vn_gov_kN, 2),
-        "utilization_active_collar": round(Vu_kN / phi_Vn_gov_kN, 4),
-        "uncollared_passes": bool(Vu_kN <= phi_Vc_unreinf_kN),
-        "active_collar_passes": bool(Vu_kN <= phi_Vn_gov_kN),
+        "utilization_active_collar": round(vu_total_MPa / phi_vn_collar_MPa, 4),
+        "uncollared_passes": bool(vu_total_MPa <= phi_vn_unreinf_MPa),
+        "active_collar_passes": bool(vu_total_MPa <= phi_vn_collar_MPa),
     }
 
 
@@ -342,7 +444,19 @@ def run_verification() -> dict[str, Any]:
 
     q_dead = cass["dead_mass_kg_m2"] * 9.80665 * 1e-3
     punch = evaluate_punching_shear_collar(9.0, 500.0, 335.0, q_dead, 1.0, 15.0)
+    # ACI 318-19 §8.4.2.3.2 interior-column unbalanced moment under 50% live pattern on equal clear spans:
+    # M_sc = 0.07 * [(q_Du + 0.5*q_Lu)*l2*ln^2 - q_Du*l2*ln^2] = 0.07 * (0.5 * 1.6 * q_live) * l2 * ln^2
+    # with l2 = 9.0 m and clear span ln = L - c_col = 9.0 - 0.5 = 8.5 m -> M_sc = 546.21 kN*m.
+    # Factored shear stress transfer follows ACI 318-19 §8.4.4.2.3: v_u = V_u/(b0*d) + gamma_v*|M_sc|*c/J_c.
+    l2_m = 9.0
+    ln_clear_m = 9.0 - 0.5
+    Mu_pattern_aci_kNm = 0.07 * (0.5 * 1.6 * 15.0) * l2_m * (ln_clear_m**2)
+    punch_patterned_v010 = evaluate_punching_shear_collar(
+        9.0, 500.0, 335.0, q_dead, 1.0, 15.0, Mu_unbalanced_kNm=Mu_pattern_aci_kNm
+    )
     punch_250pt_unreinf = evaluate_punching_shear_collar(9.0, 500.0, 210.0, 6.0, 1.0, 15.0, 40.0, 0.0, 0.0)
+    cass_overstrained_probe = solve_funicular_cassette(eps_fe_cfrp=0.0065)
+    cass_undersized_diag = solve_funicular_cassette(Ad_diag_mm2=20.0)
     fire = evaluate_2hr_fire_endurance(9.0, 3.0, 0.285, q_dead, 1.0, 15.0)
     ec_eis = evaluate_carbon_and_eis_telemetry(cass["equivalent_concrete_thickness_mm"], 4, 360.0, 980.0)
 
@@ -388,6 +502,20 @@ def run_verification() -> dict[str, Any]:
             "control": "funicular_sip_cassette_misses_65pct_embodied_carbon_reduction",
             "rejected": ec_eis["ai_datacenter_carbon_reduction_pct"] > 65.0 and ec_eis["office_50psf_funi_kgCO2e_m2"] < 22.0,
         },
+        {
+            "control": "unribbed_shell_or_local_115mm_rib_stays_within_kern_under_halfbay_313psf_pattern",
+            "rejected": (not cass["halfbay_pattern_within_shell_kern"]) and (not cass["halfbay_pattern_within_local_rib_kern"]),
+        },
+        {
+            "control": "v010_concentric_flush_collar_survives_aci318_pattern_unbalanced_moment",
+            "rejected": punch["active_collar_passes"] and (not punch_patterned_v010["active_collar_passes"]),
+        },
+        {
+            "control": "cfrp_web_shear_ignores_aci440_0p004_cap_or_diagonal_area_sizing",
+            "rejected": cass_overstrained_probe["phi_V_45deg_octagonal_mep_hole_kN"] == cass["phi_V_45deg_octagonal_mep_hole_kN"]
+            and cass_overstrained_probe["eps_fe_cfrp_aci440_capped"] == 0.004
+            and cass_undersized_diag["phi_V_45deg_octagonal_mep_hole_kN"] < cass["V_quarter_mep_demand_uls_kN"],
+        },
     ]
     failed_controls = [c["control"] for c in controls if not c["rejected"]]
     require(not failed_controls, f"must-fail controls not rejected: {', '.join(failed_controls)}")
@@ -398,7 +526,11 @@ def run_verification() -> dict[str, Any]:
         "symbolic_theorems": sym,
         "funicular_cassette_9mx3m_313psf": cass,
         "dg11_vibration_benchmark": {"active_prestressed_cassette": vib_active, "passive_cracked_shell_fails": vib_passive_fail},
-        "aci318_punching_collar_313psf": {"funi_floor_with_collar": punch, "baseline_250mm_pt_uncollared_fails": punch_250pt_unreinf},
+        "aci318_punching_collar_313psf": {
+            "funi_floor_with_collar": punch,
+            "funi_floor_with_collar_aci318_pattern_moment_fails": punch_patterned_v010,
+            "baseline_250mm_pt_uncollared_fails": punch_250pt_unreinf,
+        },
         "iso834_120min_fire_crossover": fire,
         "embodied_carbon_and_eis_leak_twin": ec_eis,
         "must_fail_controls": controls,

@@ -12,14 +12,15 @@
 ## Verified Six-Domain Architecture (`9.0 m × 9.0 m` Bay = Three `3.0 m × 9.0 m` Cassettes)
 
 1. **Stackable Stay-in-Place (SIP) Composite Trough + `45°` Octagonal MEP Webs:**
-   - A `3 mm` mineral-basalt/carbon trough pan nests 25-high on a flatbed truck, molds low-clinker `65% GGBS` C50 concrete (`74.07 mm` equivalent thickness = **`-76.11%` concrete volume** and **`-73.77%` dead mass** at `195.12 kg/m²`), and routes `200 mm` VAV ducts and chilled-water pipes through `45°` Torayca T1100G octagonal rib apertures (`373.48 kN` shear capacity vs. `185.60 kN` ULS demand; unbraced holes fail at `22.50 kN`).
+   - A `3 mm` mineral-basalt/carbon trough pan nests 25-high on a flatbed truck, molds low-clinker `65% GGBS` C50 concrete (`74.07 mm` equivalent thickness = **`-76.11%` concrete volume** and **`-73.77%` dead mass** at `195.12 kg/m²`), and routes `200 mm` VAV ducts and chilled-water pipes through `45°` Torayca T1100G octagonal rib apertures (`Ad = 65.0 mm²/leg` at the `ACI 440.2R-17` `0.004` shear effective-strain cap: **`238.49 kN`** shear capacity vs. `185.60 kN` ULS demand; unbraced holes fail at `22.50 kN`).
    - Compresses total floor + MEP depth from `660 mm` to **`380 mm`**—saving **`280.0 mm` per level (`+1 bonus floor every 12 stories`)**.
 2. **Jack-Free Resistive Joule-Heated `Fe-SMA + CFRP` Hybrid Ties (`0.3227 kWh/m²`):**
-   - Applying low-voltage resistive heating (`175 °C`, `8.712 kWh` per `27 m²` cassette) to pre-strained `Fe-Mn-Si` memory-steel strips (`4 × 980 mm²`, Empa Czaderski et al. 2015) paired with `4 × 360 mm²` Torayca T1100G chords locks in **`423.47 MPa` recovery prestress**, cancelling Castigliano tie-elongation moment (`H_service = 1,894.74 kN`, `M_crown = 4.119 kN·m`, `f_c = 13.669 <= 22.50 MPa`) with **zero hydraulic jacks**.
+   - Applying low-voltage resistive heating (`175 °C`, `8.712 kWh` per `27 m²` cassette) to pre-strained `Fe-Mn-Si` memory-steel strips (`4 × 980 mm²`, Empa Czaderski et al. 2015) paired with `4 × 360 mm²` Torayca T1100G chords locks in **`423.47 MPa` recovery prestress**, cancelling Castigliano tie-elongation moment (`H_service = 1,894.74 kN`, `M_crown = 4.119 kN·m`, `f_c = 13.669 <= 22.50 MPa`) with **zero hydraulic jacks**. **Honest Half-Bay Pattern Finding:** Under a half-bay `15/0 kPa` rack pattern (`H_pat = 1,141.77 kN`, consistent `M(L/4) = M_beam(L/4) - H_pat*z(L/4) = 50.132 kN·m`), thrust eccentricity **`e = 43.91 mm`** falls **outside** both the `55 mm` shell kern (`9.17 mm`) and the local `115 mm` rib kern (`19.17 mm`; T-section lower kern `6.27 mm`)—requiring ribbed flexural/CFRP-tie tension reinforcement rather than relying on uncracked pure compression.
 3. **Solves the Lightweight Vibration Paradox (`AISC Design Guide 11`):**
    - SymPy proves `d(ln a_p)/dm > 0` above `f_n* = 200/35 = 5.7143 Hz`. Two-way shear-keyed active cassettes (`EI_2way = 58.758 MN·m²/m`) achieve **`f_n = 8.624 Hz >= 8.0 Hz`** and **`a_p/g = 0.308% <= 0.50%` (`PASS`)**, whereas an un-prestressed cracked shell drops to `3.261 Hz` and `2.415% g` (`FAIL`).
-4. **Flush-Soffit `313 psf` (`15 kPa`) Active Punching Collar (`ACI 318M-19 §22.6.5.2`):**
-   - Because the funicular vault naturally deepens to **`380 mm` (`d_eff = 335.0 mm`, `b_0 = 3,340.0 mm`) at column corners** with a flush flat ceiling, pairing `Fe-SMA` radial clamping (`f_pc = 3.8 MPa`) with `45°` [`cfrp-truss`](/aska-physical/cfrp-truss) dowels (`V_p = 480 kN`) delivers **`phi*V_n = 2,756.40 kN >= V_u = 2,208.02 kN` (`80.11%` utilization, `PASS`)** with **zero drop panels**.
+4. **Flush-Soffit `313 psf` (`15 kPa`) Active Punching Collar (`ACI 318M-19 §8.4.4.2.3 / §22.6.5.2`):**
+   - Because the funicular vault naturally deepens to **`380 mm` (`d_eff = 335.0 mm`, `b_0 = 3,340.0 mm`) at column corners** with a flush flat ceiling, pairing `Fe-SMA` radial clamping (`f_pc = 3.8 MPa`) with `45°` [`cfrp-truss`](/aska-physical/cfrp-truss) dowels (`V_p = 480 kN`) delivers concentric **`phi*V_n = 2,756.40 kN >= V_u = 2,208.02 kN` (`v_u = 1.9734 <= 2.4635 MPa`, `80.11%` utilization, `PASS`)** with **zero drop panels**.
+   - **Honest Pattern-Moment Limitation (`ACI 318-19 §8.4.2.3.2` + `§8.4.4.2.3`):** Adding the interior-column patterned-rack unbalanced moment on clear span $\ell_n = 8.5\text{ m}$ (`M_sc = 546.21 kN·m`, `gamma_v = 0.40`, `Delta v_u = 0.6744 MPa`) pushes peak shear stress to **`v_u = 2.6478 MPa > 2.4635 MPa` (`107.48%` utilization, `FAIL`)**—proving the `v0.1.0` collar is concentric-only and requires enlarged column capitals or frame moment transfer for unmitigated patterned `313 psf` rack loads.
 5. **120-Minute `ISO 834` Fire Crossover:**
    - Grouting `Fe-SMA + end-locked T1100G` in inorganic cementitious mortar behind mineral SIP fire-board (`427.6 °C` at `120 min`) retains **`3,902.95 kN` vs. `1,171.96 kN` fire thrust demand (`3.33x` safety factor, `PASS`)**, whereas `20 mm`-cover epoxy CFRP hits `840.2 °C >> T_g = 82 °C` and collapses to `345.60 kN` (`FAIL`).
 6. **68–78% Lower Embodied Carbon + Wire-Free Coolant-Leak EIS Twin:**
@@ -31,7 +32,7 @@
 python3 verify.py
 ```
 
-Verifies four SymPy symbolic theorems and **10/10 must-fail controls** against [`results/certificate.json`](results/certificate.json). Full engineering handoff, negative findings, and issue roadmap are documented in [`HANDOFF.md`](HANDOFF.md) and [`CHANGELOG.md`](CHANGELOG.md).
+Verifies six SymPy symbolic theorems and **13/13 must-fail controls** against [`results/certificate.json`](results/certificate.json). Full engineering handoff, negative findings, and issue roadmap are documented in [`HANDOFF.md`](HANDOFF.md) and [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Attribution & Ethos
 
